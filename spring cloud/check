@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+error(){
+  echo -e "\033[31m $1 \033[0m"
+}
+
+success(){
+  echo -e "\033[32m $1 \033[0m"
+}
+
+warn(){
+  echo -e "\033[33m $1 \033[0m"
+}
+
+# $1: APP_NAME $2: APP_ADDRESS $3 check_times
+check(){
+local check_times=$3
+for((i=1;i<=${check_times};i++));
+do
+  warn "Ready to connect $1 at ${i} time...."
+  ./wait $2 -t 2 -q
+  if [[ $? -eq 0 ]]
+  then
+    return 0
+  fi
+done
+return 1
+}
+
+APP_NAME=$1
+APP_ADDRESS=$2
+CHECK_TIMES=$3
+
+if test -z ${CHECK_TIMES}; then
+  CHECK_TIMES=5
+fi
+
+check ${APP_NAME} ${APP_ADDRESS} ${CHECK_TIMES}
+RET=$?
+
+if [[ ${RET} -eq 0 ]]; then
+  success "${APP_NAME} status is running!"
+else
+  error "${APP_NAME} status is not running!"
+fi
+
+exit ${RET}

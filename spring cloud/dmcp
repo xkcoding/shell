@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+SHELL=$(basename $0)
+
+DMCP_VERSION=v2.0.0
+
+HOST=127.0.0.1
+
+DMCP_PREFIX=dmcp-
+DMCP_SUFFIX=.jar
+
+SERVICE_NAME_LIST=(nacos monitor master publish quality gateway)
+SERVICE_PORT_LIST=(8848 8000 8083 8081 8082 8080)
+
+error(){
+  echo -e "\033[31m $1 \033[0m"
+}
+
+success(){
+  echo -e "\033[32m $1 \033[0m"
+}
+
+warn(){
+  echo -e "\033[33m $1 \033[0m"
+}
+
+initServiceName(){
+  local service_name=$1
+  # if not set service name
+  # init service name -> all
+  if test -z ${service_name}
+  then
+    service_name=all
+  fi
+  case ${service_name} in
+    all|nacos|monitor|master|publish|quality|gateway)
+      ;;
+    *)
+    usage
+      exit 1;;
+  esac
+}
+
+start(){
+  initServiceName $1
+
+  local service_name=$1
+  if test -z ${service_name}
+  then
+    service_name=all
+  fi
+
+  if [[ ${service_name} != nacos ]]; then
+      status nacos
+      if [[ $? -ne 0 ]]; then
+        if [[ ${service_name} == all ]]; then
+          doStartService nacos
+          if [[ $? -eq 0 ]]; then
+            success "please configure your services' config in nacos"
+            success "nacos port is started on 8848..."
+            success "after that, then run dmcp start all"
+            exit 0
+          else
+            exit 1
+          fi
+        else
+          error "please start nacos first"
+          error "after that, then run dmcp start ${service_name}"
+          exit 1
+        fi
+      fi
+  else
+    doStartService nacos
+    if [[ $? -eq 0 ]]; then
+      success "please configure your services' config in nacos"
+      success "nacos port is started on 8848..."
+      success "after that, then run dmcp start all"
+      exit 0
+    else
+      exit 1
+    fi
+  fi
+
+  # loop service name list
+  for i in "${!SERVICE_NAME_LIST[@]}"; do
+     # if service name equals all or name list contains service name
+    local tmp=${SERVICE_NAME_LIST[$i]}
+
+    if [[ ${service_name} == all || ${service_name} ==  ${tmp} ]]; then
+      if [[ ${tmp} != nacos} ]]; then
+          warn "Ready to start ${tmp} service"
+          doStartService ${tmp}
+      fi
+    fi
+  done
+}
+
+doStartService(){
+  local service_status
+  local service_jar="${DMCP_PREFIX}$1/${DMCP_PREFIX}$1${DMCP_SUFFIX}"
+  status $1
+  if [[ $? -eq 0 ]]; then
+    success "$1 is already running"
+    service_status=0
+  else
+    nohup java -jar ${service_jar} >/dev/null 2>&1 &
+    status $1 10
+    if [[ $? -ne 0 ]]; then
+        error "$1 start error"
+        service_status=1
+    else
+        success "$1 start successful"
+        service_status=0
+    fi
+  fi
+  return ${service_status}
+}
+
+stop(){
+  initServiceName $1
+  local service_name=$1
+  if test -z ${service_name}
+  then
+    service_name=all
+  fi
+
+  # loop service name list
+  for i in "${!SERVICE_NAME_LIST[@]}"; do
+     # if service name equals all or name list contains service name
+    local tmp=${SERVICE_NAME_LIST[$i]}
+    if [[ ${service_name} == all || ${service_name} ==  ${tmp} ]]; then
+       doStopService ${tmp}
+    fi
+  done
+
+}
+
+doStopService(){
+  local service_jar="${DMCP_PREFIX}$1/${DMCP_PREFIX}$1${DMCP_SUFFIX}"
+  status $1
+  if [[ $? -eq 0 ]]; then
+    pid=$(ps -ef |grep ${service_jar} |grep -v grep |awk '{print $2}')
+    if test -z ${pid}; then
+      warn "$1 service is not running"
+    else
+      kill -9 ${pid}
+      success "$1 service has been stopped"
+    fi
+  else
+    warn "$1 service is not running"
+  fi
+}
+
+status(){
+  initServiceName $1
+
+  local service_name=$1
+  if test -z ${service_name}
+  then
+    service_name=all
+  fi
+
+  local check_times=$2
+  if test -z ${check_times}; then
+      check_times=1
+  fi
+
+  local service_status=0
+  # loop service name list
+  for i in "${!SERVICE_NAME_LIST[@]}"; do
+    # if service name equals all or name list contains service name
+    if [[ ${service_name} == all || ${service_name} == ${SERVICE_NAME_LIST[$i]} ]]; then
+      # check service status
+      warn "Ready to check ${SERVICE_NAME_LIST[$i]}'s status"
+      doStatusService ${SERVICE_NAME_LIST[$i]} "${HOST}:${SERVICE_PORT_LIST[$i]}" ${check_times}
+      if [[ $? -ne 0 ]]; then
+          service_status=1
+      fi
+    fi
+  done
+
+  return ${service_status}
+}
+
+# $1:SERVICE_NAME $2:SERVICE_ADDRESS $3:check_times
+doStatusService(){
+  ./check $1 $2 $3
+  return $?
+}
+
+version(){
+  success "DMCP Current Version: ${DMCP_VERSION}"
+}
+
+restart(){
+  stop $1
+  sleep 2
+  start $1
+}
+
+usage(){
+  error "Usage: ${SHELL} {start|stop|restart|status|version} {all|nacos|master|publish|quality}";
+}
+
+case $1 in
+  start)
+    start $2
+    exit $?;;
+  stop)
+    stop $2
+    exit $?;;
+  status)
+    status $2
+    exit $?;;
+  restart)
+    restart $2
+    exit $?;;
+  version)
+    version
+    exit $?;;
+  *)
+    usage
+    exit 1;;
+esac
+
+exit 0
